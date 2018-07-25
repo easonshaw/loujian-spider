@@ -1,0 +1,18 @@
+[2018-07-18 17:52:07 *5521.0]	ERROR	zm_deactivate_swoole (ERROR 503): Fatal error: Uncaught think\exception\ErrorException: Invalid argument supplied for foreach() in /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php:169
+Stack trace:
+#0 /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php(169): think\Error::appError(2, 'Invalid argumen...', '/www/wwwroot/sp...', 169, Array)
+#1 /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php(135): QL\Dom\Query->getList()
+#2 /ww
+[2018-07-18 17:52:07 $5512.0]	WARNING	swManager_check_exit_status: worker#0 abnormal exit, status=255, signal=0
+[2018-07-18 17:54:10 *5541.0]	ERROR	zm_deactivate_swoole (ERROR 503): Fatal error: Uncaught think\exception\ErrorException: Invalid argument supplied for foreach() in /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php:169
+Stack trace:
+#0 /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php(169): think\Error::appError(2, 'Invalid argumen...', '/www/wwwroot/sp...', 169, Array)
+#1 /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php(135): QL\Dom\Query->getList()
+#2 /ww
+[2018-07-18 17:54:10 $5532.0]	WARNING	swManager_check_exit_status: worker#0 abnormal exit, status=255, signal=0
+[2018-07-18 17:54:15 *5545.0]	ERROR	zm_deactivate_swoole (ERROR 503): Fatal error: Uncaught think\exception\ErrorException: Invalid argument supplied for foreach() in /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php:169
+Stack trace:
+#0 /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php(169): think\Error::appError(2, 'Invalid argumen...', '/www/wwwroot/sp...', 169, Array)
+#1 /www/wwwroot/spider.weiaierchang.cn/vendor/jaeger/querylist/src/Dom/Query.php(135): QL\Dom\Query->getList()
+#2 /ww
+[2018-07-18 17:54:15 $5532.0]	WARNING	swManager_check_exit_status: worker#0 abnormal exit, status=255, signal=0
