@@ -1,15 +1,106 @@
 <?php
 namespace app\index\controller;
-
+use QL\QueryList;
+use think\facade\Config;
 class Index
 {
     public function index()
     {
-        return '<style type="text/css">*{ padding: 0; margin: 0; } div{ padding: 4px 48px;} a{color:#2E5CD5;cursor: pointer;text-decoration: none} a:hover{text-decoration:underline; } body{ background: #fff; font-family: "Century Gothic","Microsoft yahei"; color: #333;font-size:18px;} h1{ font-size: 100px; font-weight: normal; margin-bottom: 12px; } p{ line-height: 1.6em; font-size: 42px }</style><div style="padding: 24px 48px;"> <h1>:) </h1><p> ThinkPHP V5.1<br/><span style="font-size:30px">12载初心不改（2006-2018） - 你值得信赖的PHP框架</span></p></div><script type="text/javascript" src="https://tajs.qq.com/stats?sId=64890268" charset="UTF-8"></script><script type="text/javascript" src="https://e.topthink.com/Public/static/client.js"></script><think id="eab4b9f840753f8e7"></think>';
+        $url = 'http://www.xicidaili.com';
+        $ql = QueryList::getInstance();
+        $portList = array();
+        $header = [
+            'timeout' => 120,
+            'headers' => [
+               'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36',
+            ]
+        ];
+        $data = $ql->get($url, array(), $header)->encoding('UTF-8')->rules([
+            'ip' => ['td:eq(1)','text','',function($content){
+                return $content;
+            }],
+            'port' => ['td:eq(2)', 'text', '', function($content) {
+                return $content;
+             }]
+        ])->range('#ip_list tr')->query()->getData();
+        $portList =  $data->all();
+
+        $redis = new \Redis();
+        $redis->connect(Config::get('redis.host'), Config::get('redis.port'));
+        $redis->auth(Config::get('redis.auth'));
+        $index = 1;
+        foreach ($portList as $k => $v) {
+            if(empty($v['ip']) || empty($v['port'])) continue;
+            $item = $v['ip'].':'.$v['port'];
+            try{
+                $redis->zAdd(Config::get('redis.ips_free'), $index, $item);
+            }catch(Exception $e){
+                echo $e->getMessage()."\n";
+            }
+
+        }
+
     }
 
     public function hello($name = 'ThinkPHP5')
     {
-        return 'hello,' . $name;
+        $ql = QueryList::get('http://spider.weiaierchang.cn/spider.html');
+        $html = $ql->getHtml();
+        $isExistHtml = false;
+
+        $data  = QueryList::html($html)->find('.div-border>.items:eq(0)>.elems-l')->children()->map(function($item){
+            if($item->is('a') && $item->text() != '全部'){
+                return ['name' => $item->text(), 'url' => $item->href];
+            } else {
+                return [];
+            }
+        });
+
+        $title = QueryList::html($html)->find('title')->html();
+
+        //print_r($html);
+        print_r($title.PHP_EOL);
+
+        $isExistHtml = QueryList::html($html)->find('.div-border')->count();
+
+
+        print_r($isExistHtml);
+
+        if(count($data->all()) == 0 && $isExistHtml == 0) {
+            print_r('---allow---'.PHP_EOL);
+            print_r($data->all());
+            $isExistHtml = QueryList::html($html)->find('.area-bd')->count();
+            $data  = QueryList::html($html)->find('.area-bd>.filter')->children()->map(function($item){
+                if($item->is('a') && $item->text() != '全部'){
+                    return ['name' => $item->text(), 'url' => $item->href];
+                } else {
+                    return [];
+                }
+            });
+
+        }
+
+        $districts = $data->all();
+
+        print_r($isExistHtml);
+        if(count($districts) > 0 || $isExistHtml > 0){
+            print_r($districts);
+            echo '----成功.'.PHP_EOL;
+        } else {
+            echo '----失败.'.PHP_EOL;
+        }
+    }
+
+    public function zhimaagent() {
+        $redis = new \Redis();
+        $redis->connect(Config::get('redis.host'), Config::get('redis.port'));
+        $redis->auth(Config::get('redis.auth'));
+        $url = 'http://webapi.http.zhimacangku.com/getip?num=20&type=2&pro=&city=0&yys=0&port=11&pack=14312&ts=0&ys=0&cs=0&lb=1&sb=0&pb=4&mr=1&regions=';
+        $ql = QueryList::get($url);
+        $html = $ql->getHtml();
+        $ipList = json_decode($html, true);
+        foreach ($ipList['data'] as $k => $v) {
+            $redis->zAdd(Config::get('redis.ips_free'), 1, $v['ip'].':'.$v['port']);
+        }
     }
 }

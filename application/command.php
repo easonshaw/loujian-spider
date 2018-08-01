@@ -11,4 +11,5 @@
 
 return [
     'app\console\CitysTask',
+    'app\console\DistrictTask',
 ];

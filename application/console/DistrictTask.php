@@ -15,25 +15,20 @@ use GuzzleHttp\Client;
 use QL\QueryList;
 use QL\Ext\PhantomJs;
 use think\facade\Config;
-class CitysTask extends Command
+class DistrictTask extends Command
 {
     protected $server;
     protected $redis;
     protected $platform;
 
-    // 命令行配置函数
     protected function configure()
     {
-        // setName 设置命令行名称
-        // setDescription 设置命令行描述
-        $this->setName('citys:start')->setDescription('安居客小区信息采集-城市列表!');
+        $this->setName('district:start')->setDescription('安居客小区信息采集-城市列表!');
     }
 
-    // 设置命令返回信息
     protected function execute(Input $input, Output $output)
     {
         $this->server = new \swoole_server('0.0.0.0', 9501);
-
         $this->redis = new \Redis();
         $this->redis->connect(Config::get('redis.host'), Config::get('redis.port'));
         $this->redis->auth(Config::get('redis.auth'));
@@ -44,7 +39,7 @@ class CitysTask extends Command
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_citys.log',
+            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_district.log',
         ]);
 
         // 注册回调函数
@@ -55,7 +50,6 @@ class CitysTask extends Command
         $this->server->on('Task', [$this, 'onTask']);
         $this->server->on('Finish', [$this, 'onFinish']);
         $this->server->on('Close', [$this, 'onClose']);
-
         $this->server->start();
     }
 
@@ -71,41 +65,59 @@ class CitysTask extends Command
     {
         if( $worker_id == 0 )
         {
-            swoole_timer_tick(100, function ($timer) {
+            swoole_timer_tick(1000, function ($timer) {
                 if(!$this->hasAgent()){
-                    echo '不能采集'.PHP_EOL;
-                    swoole_timer_clear($timer);
+                    echo '不能采集-代理IP不存在'.PHP_EOL;
                     return false;
                 }
+                if(!$this->hasCity()){
+                    echo '不能采集-城市库为空'.PHP_EOL;
+                    return false;
+                }
+
                 $insertData = array();
-                $allowips = $this->getAgents(1);
-                $url = 'https://www.anjuke.com/sy-city.html';
+                $allowIps = $this->getAgents(); //默认取一个代理IP
+                $cityUrls = $this->getCity();    //默认取一个城市URL
+                $isExistHtml = false;
 
                 $ql = QueryList::getInstance();
                 $ql->use(PhantomJs::class,'/usr/local/bin/phantomjs','browser');
-                $html = $ql->browser($url,false,['--proxy' => $allowips[0], '--proxy-type' => 'https'])->getHtml();
-                $data  = QueryList::html($html)->find('.city_list')->children()->map(function($item){
-                    if($item->is('a')){
+                $html = $ql->browser($cityUrls[0], false, ['--proxy' => $allowIps[0], '--proxy-type' => 'https'])->getHtml();
+                $data  = QueryList::html($html)->find('.div-border>.items:eq(0)>.elems-l')->children()->map(function($item){
+                    if($item->is('a') && $item->text() != '全部'){
                         return ['name' => $item->text(), 'url' => $item->href];
+                    } else {
+                        return [];
                     }
                 });
-                $citys = $data->all();
-                if(!empty($citys)) {
-                    foreach ($citys as $key => $value){
-                        array_push($insertData, ['time' => time(), 'platform' => $this->platform, 'name' => $value['name'], 'url' => $value['url']]);
-                    }
+                $title = QueryList::html($html)->find('title')->html();
+                print_r($title);
+
+                $isExistHtml = QueryList::html($html)->find('.div-border')->count();
+
+                if(count($data->all()) == 0 && $isExistHtml == 0) {
+                    $isExistHtml = QueryList::html($html)->find('.area-bd')->count();
+                    $data  = QueryList::html($html)->find('.area-bd>.filter')->children()->map(function($item){
+                        if($item->is('a') && $item->text() != '全部'){
+                            return ['name' => $item->text(), 'url' => $item->href];
+                        } else {
+                            return [];
+                        }
+                    });
+
                 }
-                // 写入REDIS
-                foreach ($insertData as $k => $v) {
+
+
+                $districts = $data->all();
+                foreach ($districts as $k => $v) {
                     if(empty($v['url'])) continue;
-                    $this->redis->zAdd(Config::get('redis.city_set'), 1, $v['url'].'/community');
-                    $this->redis->zAdd(Config::get('redis.city_set'), 1, str_replace('.anjuke', '.anjuke').'/community');
+                    $this->redis->zAdd(Config::get('redis.district_set'), 1, $v['url']);
                 }
-                if(!empty($citys)){
-                    // Db::name('spider_citys')->insertAll($insertData, true); 写入MYSQL
-                    echo $allowips[0].'----代理成功.'.PHP_EOL;
+                if(count($districts) > 0 || $isExistHtml > 0){
+                    $this->removeCity($cityUrls[0]);
+                    echo $allowIps[0].'---'.$cityUrls[0].'----代理成功.'.PHP_EOL;
                 } else {
-                    echo $allowips[0].'----代理失败.'.PHP_EOL;
+                    echo $allowIps[0].'---'.$cityUrls[0].'----代理失败.'.PHP_EOL;
                 }
             });
         }
@@ -168,6 +180,23 @@ class CitysTask extends Command
     private function hasAgent()
     {
         return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
+    }
+
+    // 拿一个城市URL
+    private function getCity($count = 1)
+    {
+        return $this->redis->zRange(Config::get('redis.city_set'), 0, $count-1, false);
+    }
+
+    // 采集完后删除城市URL
+    private function removeCity($url) {
+        $this->redis->zRem(Config::get('redis.city_set'), $url);
+    }
+
+    // 检查是否存在运行采集的城市库
+    private function hasCity()
+    {
+        return $this->redis->zCard(Config::get('redis.city_set')) > 0 ? true : false;
     }
 
 }
