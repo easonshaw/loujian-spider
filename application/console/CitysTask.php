@@ -32,7 +32,7 @@ class CitysTask extends Command
     // 设置命令返回信息
     protected function execute(Input $input, Output $output)
     {
-        $this->server = new \swoole_server('0.0.0.0', 9501);
+        $this->server = new \swoole_server('0.0.0.0', 9502);
 
         $this->redis = new \Redis();
         $this->redis->connect(Config::get('redis.host'), Config::get('redis.port'));

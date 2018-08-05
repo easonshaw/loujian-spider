@@ -15,31 +15,31 @@ use GuzzleHttp\Client;
 use QL\QueryList;
 use QL\Ext\PhantomJs;
 use think\facade\Config;
-class DistrictTask extends Command
+class AgentTask extends Command
 {
     protected $server;
     protected $redis;
-    protected $platform;
 
+    // 命令行配置函数
     protected function configure()
     {
-        $this->setName('district:start')->setDescription('安居客小区信息采集-城市列表!');
+        $this->setName('agent:start')->setDescription('西刺HTTP代理!');
     }
 
+    // 设置命令返回信息
     protected function execute(Input $input, Output $output)
     {
-        $this->server = new \swoole_server('0.0.0.0', 9503);
+        $this->server = new \swoole_server('0.0.0.0', 9501);
         $this->redis = new \Redis();
         $this->redis->connect(Config::get('redis.host'), Config::get('redis.port'));
         $this->redis->auth(Config::get('redis.auth'));
-        $this->platform = 'ANJUKE';
 
         // server 运行前配置
         $this->server->set([
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_district.log',
+            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_agent.log',
         ]);
 
         // 注册回调函数
@@ -50,6 +50,7 @@ class DistrictTask extends Command
         $this->server->on('Task', [$this, 'onTask']);
         $this->server->on('Finish', [$this, 'onFinish']);
         $this->server->on('Close', [$this, 'onClose']);
+
         $this->server->start();
     }
 
@@ -57,7 +58,6 @@ class DistrictTask extends Command
     public function onStart(\swoole_server $server)
     {
         echo "START".PHP_EOL;
-
     }
 
     // 主进程启动时回调函数
@@ -65,60 +65,47 @@ class DistrictTask extends Command
     {
         if( $worker_id == 0 )
         {
-            swoole_timer_tick(1000, function ($timer) {
+            swoole_timer_tick(2*60*1000, function ($timer) {
                 if(!$this->hasAgent()){
-                    echo '不能采集-代理IP不存在'.PHP_EOL;
+                    echo '不能采集'.PHP_EOL;
+                    swoole_timer_clear($timer);
                     return false;
                 }
-                if(!$this->hasCity()){
-                    echo '不能采集-城市库为空'.PHP_EOL;
-                    return false;
-                }
-
                 $insertData = array();
-                $allowIps = $this->getAgents(); //默认取一个代理IP
-                $cityUrls = $this->getCity();    //默认取一个城市URL
-                $isExistHtml = false;
-
+                $allowIps = $this->getAgents(1);
+                $url = $this->getxiciUrl();
                 $ql = QueryList::getInstance();
                 $ql->use(PhantomJs::class,'/usr/local/bin/phantomjs','browser');
-                $html = $ql->browser($cityUrls[0], false, ['--proxy' => $allowIps[0], '--proxy-type' => 'https'])->getHtml();
-                $data  = QueryList::html($html)->find('.div-border>.items:eq(0)>.elems-l')->children()->map(function($item){
-                    if($item->is('a') && $item->text() != '全部'){
-                        return ['name' => $item->text(), 'url' => $item->href];
-                    } else {
-                        return [];
-                    }
-                });
-                $title = QueryList::html($html)->find('title')->html();
-                print_r($title);
-
-                $isExistHtml = QueryList::html($html)->find('.div-border')->count();
-
-                if(count($data->all()) == 0 && $isExistHtml == 0) {
-                    $isExistHtml = QueryList::html($html)->find('.area-bd')->count();
-                    $data  = QueryList::html($html)->find('.area-bd>.filter')->children()->map(function($item){
-                        if($item->is('a') && $item->text() != '全部'){
-                            return ['name' => $item->text(), 'url' => $item->href];
-                        } else {
-                            return [];
+                $html = $ql->browser($url, false, ['--proxy' => $allowIps[0], '--proxy-type' => 'https'])->getHtml();
+                $data = QueryList::html($html)->rules([
+                    'ip' => ['td:eq(1)','text','',function($content){
+                        return $content;
+                    }],
+                    'port' => ['td:eq(2)', 'text', '', function($content) {
+                        return $content;
+                    }],
+                    'type' => ['td:eq(5)', 'text', '', function($content) {
+                        return $content;
+                    }]
+                ])->range('#ip_list tr')->query()->getData();
+                $portList =  $data->all();
+                $itemCount = 0;
+                foreach ($portList as $k => $v) {
+                    if(empty($v['ip']) || empty($v['port']) || $v['type'] != 'HTTPS') continue;
+                    $item = $v['ip'].':'.$v['port'];
+                    try{
+                        $result = $this->redis->zAdd(Config::get('redis.ips_free'), time().'.'.$k, $item);
+                        if($result) {
+                            $itemCount++;
                         }
-                    });
-
+                    }catch(Exception $e){
+                        echo $e->getMessage()."\n";
+                    }
                 }
-
-
-                $districts = $data->all();
-                foreach ($districts as $k => $v) {
-                    if(empty($v['url'])) continue;
-                    $this->redis->zAdd(Config::get('redis.district_set'), 1, $v['url']);
+                if($itemCount > 0) {
+                    $this->redis->incrBy(Config::get('redis.ips_count').":".date('Ymd'), $itemCount);
                 }
-                if(count($districts) > 0 || $isExistHtml > 0){
-                    $this->removeCity($cityUrls[0]);
-                    echo $allowIps[0].'---'.$cityUrls[0].'----代理成功.'.PHP_EOL;
-                } else {
-                    echo $allowIps[0].'---'.$cityUrls[0].'----代理失败.'.PHP_EOL;
-                }
+                echo '获取IP数量:'.$itemCount.PHP_EOL;
             });
         }
     }
@@ -172,6 +159,7 @@ class DistrictTask extends Command
         {
             array_push($ips, $v);
             $this->redis->zRem(Config::get('redis.ips_free'), $v);
+            $this->redis->incrBy(Config::get('redis.ips_count').":".date('Ymd'), -1);
         }
         return $ips;
     }
@@ -182,21 +170,11 @@ class DistrictTask extends Command
         return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
     }
 
-    // 拿一个城市URL
-    private function getCity($count = 1)
+    // 获取一个Agent采集地址
+    private function getxiciUrl()
     {
-        return $this->redis->zRange(Config::get('redis.city_set'), 0, $count-1, false);
-    }
-
-    // 采集完后删除城市URL
-    private function removeCity($url) {
-        $this->redis->zRem(Config::get('redis.city_set'), $url);
-    }
-
-    // 检查是否存在运行采集的城市库
-    private function hasCity()
-    {
-        return $this->redis->zCard(Config::get('redis.city_set')) > 0 ? true : false;
+        $urls = array('http://www.xicidaili.com', 'http://www.xicidaili.com/nn', 'http://www.xicidaili.com/nt', 'http://www.xicidaili.com/nt');
+        return $urls[array_rand($urls, 1)];
     }
 
 }

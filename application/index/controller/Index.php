@@ -6,6 +6,7 @@ class Index
 {
     public function index()
     {
+        exit;
         $url = 'http://www.xicidaili.com';
         $ql = QueryList::getInstance();
         $portList = array();
@@ -48,19 +49,27 @@ class Index
         $html = $ql->getHtml();
         $isExistHtml = false;
 
-        $data  = QueryList::html($html)->find('.div-border>.items:eq(0)>.elems-l')->children()->map(function($item){
-            if($item->is('a') && $item->text() != '全部'){
-                return ['name' => $item->text(), 'url' => $item->href];
-            } else {
-                return [];
+        $data = array();
+
+        $data['name'] = QueryList::html($html)->find('.comm-title>h1')->text();
+        $mapurl = QueryList::html($html)->find('.comm-title>a')->href;
+        if ( !empty($mapurl) ) {
+            $mapArray = parse_url($mapurl);
+            if (!empty($mapArray['fragment'])) {
+                foreach (explode('&', $mapArray['fragment']) as $k => $v) {
+                    $ele = explode('=', $v);
+                    if ($ele[0] == 'l1') {
+                        $data['lat'] = $ele[1];
+                    }
+                    if ($ele[0] == 'l2') {
+                        $data['lng'] = $ele[1];
+                    }
+                }
             }
-        });
+        }
+        print_r($data);
 
-        $title = QueryList::html($html)->find('title')->html();
-
-        //print_r($html);
-        print_r($title.PHP_EOL);
-
+        exit;
         $isExistHtml = QueryList::html($html)->find('.div-border')->count();
 
 
@@ -95,10 +104,12 @@ class Index
         $redis = new \Redis();
         $redis->connect(Config::get('redis.host'), Config::get('redis.port'));
         $redis->auth(Config::get('redis.auth'));
-        $url = 'http://webapi.http.zhimacangku.com/getip?num=20&type=2&pro=&city=0&yys=0&port=11&pack=14312&ts=0&ys=0&cs=0&lb=1&sb=0&pb=4&mr=1&regions=';
+        // $url = 'http://webapi.http.zhimacangku.com/getip?num=20&type=2&pro=&city=0&yys=0&port=11&pack=14312&ts=0&ys=0&cs=0&lb=1&sb=0&pb=4&mr=1&regions=';
+        $url = 'http://webapi.http.zhimacangku.com/getip?num=20&type=2&pro=&city=0&yys=0&port=11&pack=26448&ts=0&ys=0&cs=0&lb=1&sb=0&pb=4&mr=1&regions=';
         $ql = QueryList::get($url);
         $html = $ql->getHtml();
         $ipList = json_decode($html, true);
+        print_r($ipList);
         foreach ($ipList['data'] as $k => $v) {
             $redis->zAdd(Config::get('redis.ips_free'), 1, $v['ip'].':'.$v['port']);
         }

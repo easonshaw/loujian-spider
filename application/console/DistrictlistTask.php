@@ -15,7 +15,7 @@ use GuzzleHttp\Client;
 use QL\QueryList;
 use QL\Ext\PhantomJs;
 use think\facade\Config;
-class DistrictTask extends Command
+class DistrictlistTask extends Command
 {
     protected $server;
     protected $redis;
@@ -23,12 +23,12 @@ class DistrictTask extends Command
 
     protected function configure()
     {
-        $this->setName('district:start')->setDescription('安居客小区信息采集-城市列表!');
+        $this->setName('districtlist:start')->setDescription('安居客小区信息采集-区域资源列表!');
     }
 
     protected function execute(Input $input, Output $output)
     {
-        $this->server = new \swoole_server('0.0.0.0', 9503);
+        $this->server = new \swoole_server('0.0.0.0', 9504);
         $this->redis = new \Redis();
         $this->redis->connect(Config::get('redis.host'), Config::get('redis.port'));
         $this->redis->auth(Config::get('redis.auth'));
@@ -39,7 +39,7 @@ class DistrictTask extends Command
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_district.log',
+            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_districtlist.log',
         ]);
 
         // 注册回调函数
@@ -70,55 +70,42 @@ class DistrictTask extends Command
                     echo '不能采集-代理IP不存在'.PHP_EOL;
                     return false;
                 }
-                if(!$this->hasCity()){
-                    echo '不能采集-城市库为空'.PHP_EOL;
+                if(!$this->hasDistrict()){
+                    echo '不能采集-城市地区信息为空'.PHP_EOL;
                     return false;
                 }
 
                 $insertData = array();
                 $allowIps = $this->getAgents(); //默认取一个代理IP
-                $cityUrls = $this->getCity();    //默认取一个城市URL
+                $Urls = $this->getDistrict();    //默认取一个城市URL
                 $isExistHtml = false;
 
                 $ql = QueryList::getInstance();
                 $ql->use(PhantomJs::class,'/usr/local/bin/phantomjs','browser');
-                $html = $ql->browser($cityUrls[0], false, ['--proxy' => $allowIps[0], '--proxy-type' => 'https'])->getHtml();
-                $data  = QueryList::html($html)->find('.div-border>.items:eq(0)>.elems-l')->children()->map(function($item){
-                    if($item->is('a') && $item->text() != '全部'){
-                        return ['name' => $item->text(), 'url' => $item->href];
-                    } else {
-                        return [];
+                $html = $ql->browser($Urls[0], false, ['--proxy' => $allowIps[0], '--proxy-type' => 'https'])->getHtml();
+                $isExistHtml = QueryList::html($html)->find('.list-content')->count();
+
+                $data  = QueryList::html($html)->find('.list-content>.sortby>.tit>em:eq(1)')->text();
+                $title = QueryList::html($html)->find('title')->text();
+
+                if ($isExistHtml > 0 && $data > 0)
+                {
+                    $insertCount = 0;
+                    $loop = ceil($data / 30);
+                    for ($i=1; $i <= $loop; $i++) {
+                        $result = $this->redis->zAdd(Config::get('redis.districtlist_set'), 1, $Urls[0].'p'.$i.'/');
+                        if($result > 0) $insertCount++;
                     }
-                });
-                $title = QueryList::html($html)->find('title')->html();
-                print_r($title);
-
-                $isExistHtml = QueryList::html($html)->find('.div-border')->count();
-
-                if(count($data->all()) == 0 && $isExistHtml == 0) {
-                    $isExistHtml = QueryList::html($html)->find('.area-bd')->count();
-                    $data  = QueryList::html($html)->find('.area-bd>.filter')->children()->map(function($item){
-                        if($item->is('a') && $item->text() != '全部'){
-                            return ['name' => $item->text(), 'url' => $item->href];
-                        } else {
-                            return [];
-                        }
-                    });
-
-                }
-
-
-                $districts = $data->all();
-                foreach ($districts as $k => $v) {
-                    if(empty($v['url'])) continue;
-                    $this->redis->zAdd(Config::get('redis.district_set'), 1, $v['url']);
-                }
-                if(count($districts) > 0 || $isExistHtml > 0){
-                    $this->removeCity($cityUrls[0]);
-                    echo $allowIps[0].'---'.$cityUrls[0].'----代理成功.'.PHP_EOL;
+                    if ($insertCount > 0){
+                        $this->removeDistrict($Urls[0]);
+                        echo $allowIps[0].'---'.$Urls[0].'----代理成功.'.PHP_EOL;
+                    } else {
+                        echo $allowIps[0].'---'.$Urls[0].'----代理失败.'.PHP_EOL;
+                    }
                 } else {
-                    echo $allowIps[0].'---'.$cityUrls[0].'----代理失败.'.PHP_EOL;
+                    echo $title.$allowIps[0].'---'.$Urls[0].'----代理失败.'.PHP_EOL;
                 }
+
             });
         }
     }
@@ -182,21 +169,21 @@ class DistrictTask extends Command
         return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
     }
 
-    // 拿一个城市URL
-    private function getCity($count = 1)
+    // 拿一个解析URL
+    private function getDistrict($count = 1)
     {
-        return $this->redis->zRange(Config::get('redis.city_set'), 0, $count-1, false);
+        return $this->redis->zRange(Config::get('redis.district_set'), 0, $count-1, false);
     }
 
     // 采集完后删除城市URL
-    private function removeCity($url) {
-        $this->redis->zRem(Config::get('redis.city_set'), $url);
+    private function removeDistrict($url) {
+        $this->redis->zRem(Config::get('redis.district_set'), $url);
     }
 
-    // 检查是否存在运行采集的城市库
-    private function hasCity()
+    // 检查是否存在运行采集的城市区域库
+    private function hasDistrict()
     {
-        return $this->redis->zCard(Config::get('redis.city_set')) > 0 ? true : false;
+        return $this->redis->zCard(Config::get('redis.district_set')) > 0 ? true : false;
     }
 
 }

@@ -12,4 +12,7 @@
 return [
     'app\console\CitysTask',
     'app\console\DistrictTask',
+    'app\console\AgentTask',
+    'app\console\DistrictlistTask',
+    'app\console\CommunityTask',
 ];
