@@ -44,7 +44,7 @@ class CitysTask extends Command
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/logs/cron_get_citys.log',
+            'log_file' => '/www/wwwroot/spider.5156dgjob.com/logs/cron_get_citys.log',
         ]);
 
         // 注册回调函数
