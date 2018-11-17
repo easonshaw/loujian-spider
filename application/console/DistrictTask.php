@@ -28,7 +28,7 @@ class DistrictTask extends Command
 
     protected function execute(Input $input, Output $output)
     {
-        $this->server = new \swoole_server('0.0.0.0', 9503);
+        $this->server = new \swoole_server('0.0.0.0', 9504);
         $this->redis = new \Redis();
         $this->redis->connect(Config::get('redis.host'), Config::get('redis.port'));
         $this->redis->auth(Config::get('redis.auth'));
@@ -39,7 +39,7 @@ class DistrictTask extends Command
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_district.log',
+            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/logs/cron_get_district.log',
         ]);
 
         // 注册回调函数
@@ -65,7 +65,7 @@ class DistrictTask extends Command
     {
         if( $worker_id == 0 )
         {
-            swoole_timer_tick(1000, function ($timer) {
+            swoole_timer_tick(200, function ($timer) {
                 if(!$this->hasAgent()){
                     echo '不能采集-代理IP不存在'.PHP_EOL;
                     return false;
@@ -79,6 +79,7 @@ class DistrictTask extends Command
                 $allowIps = $this->getAgents(); //默认取一个代理IP
                 $cityUrls = $this->getCity();    //默认取一个城市URL
                 $isExistHtml = false;
+                $score = 0;
 
                 $ql = QueryList::getInstance();
                 $ql->use(PhantomJs::class,'/usr/local/bin/phantomjs','browser');
@@ -90,7 +91,12 @@ class DistrictTask extends Command
                         return [];
                     }
                 });
+                $score = QueryList::html($html)->find('.sortby>em:eq(1)')->text();
                 $title = QueryList::html($html)->find('title')->html();
+                if ($title == '页面已经被删除或者未找到 - 安居客') {
+                    $this->removeCity($cityUrls[0]);
+                    return [];
+                }
                 print_r($title);
 
                 $isExistHtml = QueryList::html($html)->find('.div-border')->count();
@@ -104,6 +110,7 @@ class DistrictTask extends Command
                             return [];
                         }
                     });
+
 
                 }
 
@@ -166,20 +173,27 @@ class DistrictTask extends Command
     // 拿一个代理IP，并从集合删除
     private function getAgents($count = 1)
     {
-        $ips = array();
-        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
-        foreach ($ips_free as $k => $v)
-        {
-            array_push($ips, $v);
-            $this->redis->zRem(Config::get('redis.ips_free'), $v);
-        }
+        $url = 'http://dynamic.goubanjia.com/dynamic/get/9b5318ca9855fdea66482986f83a8d0e.html?sep=6&rnd='.rand(0, 9999);
+        $ql = QueryList::get($url);
+        $ipstr = $ql->getHtml();
+        $ips = explode(';', $ipstr);
         return $ips;
+//        存入REDIS队列
+//        $ips = array();
+//        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
+//        foreach ($ips_free as $k => $v)
+//        {
+//            array_push($ips, $v);
+//            $this->redis->zRem(Config::get('redis.ips_free'), $v);
+//        }
+//        return $ips;
     }
 
     // 检查是否存在代理IP
     private function hasAgent()
     {
-        return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
+        return true;
+        // return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
     }
 
     // 拿一个城市URL

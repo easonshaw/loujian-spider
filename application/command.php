@@ -15,4 +15,5 @@ return [
     'app\console\AgentTask',
     'app\console\DistrictlistTask',
     'app\console\CommunityTask',
+    'app\console\CommunitydbTask',
 ];

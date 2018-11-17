@@ -28,7 +28,7 @@ class CommunityTask extends Command
 
     protected function execute(Input $input, Output $output)
     {
-        $this->server = new \swoole_server('0.0.0.0', 9504);
+        $this->server = new \swoole_server('0.0.0.0', 9505);
         $this->redis = new \Redis();
         $this->redis->connect(Config::get('redis.host'), Config::get('redis.port'));
         $this->redis->auth(Config::get('redis.auth'));
@@ -39,7 +39,7 @@ class CommunityTask extends Command
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_districtlist.log',
+            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/logs/cron_get_districtlist.log',
         ]);
 
         // 注册回调函数
@@ -65,7 +65,7 @@ class CommunityTask extends Command
     {
         if( $worker_id == 0 )
         {
-            swoole_timer_tick(1000, function ($timer) {
+            swoole_timer_tick(200, function ($timer) {
                 if(!$this->hasAgent()){
                     echo '不能采集-代理IP不存在'.PHP_EOL;
                     return false;
@@ -84,6 +84,9 @@ class CommunityTask extends Command
                 $ql->use(PhantomJs::class,'/usr/local/bin/phantomjs','browser');
                 $html = $ql->browser($Urls[0], false, ['--proxy' => $allowIps[0], '--proxy-type' => 'https'])->getHtml();
                 $isExistHtml = QueryList::html($html)->find('.list-content')->count();
+                if ($isExistHtml == 0) {
+                    $isExistHtml = QueryList::html($html)->find('.list-contents')->count();
+                }
 
                 $data = QueryList::html($html)->rules([
                     'url' => array('a','href'),
@@ -92,6 +95,14 @@ class CommunityTask extends Command
                 $title = QueryList::html($html)->find('title')->text();
                 echo $title;
                 $communitys = $data->all();
+
+                if (empty($communitys)) {
+                    $data = QueryList::html($html)->rules([
+                        'url' => array('.pic','href')
+                    ])->range('.key-list>.item-mod')->query()->getData();
+                    $title = QueryList::html($html)->find('title')->text();
+                    $communitys = $data->all();
+                }
                 if ($isExistHtml > 0 && count($communitys) > 0)
                 {
                     $insertCount = 0;
@@ -157,20 +168,27 @@ class CommunityTask extends Command
     // 拿一个代理IP，并从集合删除
     private function getAgents($count = 1)
     {
-        $ips = array();
-        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
-        foreach ($ips_free as $k => $v)
-        {
-            array_push($ips, $v);
-            $this->redis->zRem(Config::get('redis.ips_free'), $v);
-        }
+        $url = 'http://dynamic.goubanjia.com/dynamic/get/9b5318ca9855fdea66482986f83a8d0e.html?sep=6&rnd='.rand(0, 9999);
+        $ql = QueryList::get($url);
+        $ipstr = $ql->getHtml();
+        $ips = explode(';', $ipstr);
         return $ips;
+//        存入REDIS队列
+//        $ips = array();
+//        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
+//        foreach ($ips_free as $k => $v)
+//        {
+//            array_push($ips, $v);
+//            $this->redis->zRem(Config::get('redis.ips_free'), $v);
+//        }
+//        return $ips;
     }
 
     // 检查是否存在代理IP
     private function hasAgent()
     {
-        return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
+        return true;
+        // return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
     }
 
     // 拿一个解析URL

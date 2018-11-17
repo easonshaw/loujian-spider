@@ -28,7 +28,7 @@ class DistrictlistTask extends Command
 
     protected function execute(Input $input, Output $output)
     {
-        $this->server = new \swoole_server('0.0.0.0', 9504);
+        $this->server = new \swoole_server('0.0.0.0', 9503);
         $this->redis = new \Redis();
         $this->redis->connect(Config::get('redis.host'), Config::get('redis.port'));
         $this->redis->auth(Config::get('redis.auth'));
@@ -39,7 +39,7 @@ class DistrictlistTask extends Command
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_districtlist.log',
+            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/logs/cron_get_districtlist.log',
         ]);
 
         // 注册回调函数
@@ -65,7 +65,7 @@ class DistrictlistTask extends Command
     {
         if( $worker_id == 0 )
         {
-            swoole_timer_tick(1000, function ($timer) {
+            swoole_timer_tick(200, function ($timer) {
                 if(!$this->hasAgent()){
                     echo '不能采集-代理IP不存在'.PHP_EOL;
                     return false;
@@ -78,14 +78,28 @@ class DistrictlistTask extends Command
                 $insertData = array();
                 $allowIps = $this->getAgents(); //默认取一个代理IP
                 $Urls = $this->getDistrict();    //默认取一个城市URL
+                //$Urls = array('http://spider.weiaierchang.cn/spider.html');
                 $isExistHtml = false;
 
                 $ql = QueryList::getInstance();
                 $ql->use(PhantomJs::class,'/usr/local/bin/phantomjs','browser');
-                $html = $ql->browser($Urls[0], false, ['--proxy' => $allowIps[0], '--proxy-type' => 'https'])->getHtml();
+                $html = $ql->browser($Urls[0], false, ['--proxy' => $allowIps[0]])->getHtml();
                 $isExistHtml = QueryList::html($html)->find('.list-content')->count();
-
+                if ($isExistHtml == 0) {
+                    $isExistHtml = QueryList::html($html)->find('.list-contents')->count();
+                }
                 $data  = QueryList::html($html)->find('.list-content>.sortby>.tit>em:eq(1)')->text();
+                if ($data == '0') {
+                    $this->removeDistrict($Urls[0]);
+                }
+
+                if (empty($data)) {
+                    $data  = $loupansum =  QueryList::html($html)->find('.sort-condi>.result>em')->text();
+                    if ($loupansum == '0') {
+                        $this->removeDistrict($Urls[0]);
+                    }
+                }
+
                 $title = QueryList::html($html)->find('title')->text();
 
                 if ($isExistHtml > 0 && $data > 0)
@@ -93,7 +107,7 @@ class DistrictlistTask extends Command
                     $insertCount = 0;
                     $loop = ceil($data / 30);
                     for ($i=1; $i <= $loop; $i++) {
-                        $result = $this->redis->zAdd(Config::get('redis.districtlist_set'), 1, $Urls[0].'p'.$i.'/');
+                        $result = $this->redis->zAdd(Config::get('redis.districtlist_set'), $data, $Urls[0].'p'.$i.'/');
                         if($result > 0) $insertCount++;
                     }
                     if ($insertCount > 0){
@@ -153,20 +167,27 @@ class DistrictlistTask extends Command
     // 拿一个代理IP，并从集合删除
     private function getAgents($count = 1)
     {
-        $ips = array();
-        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
-        foreach ($ips_free as $k => $v)
-        {
-            array_push($ips, $v);
-            $this->redis->zRem(Config::get('redis.ips_free'), $v);
-        }
+        $url = 'http://dynamic.goubanjia.com/dynamic/get/9b5318ca9855fdea66482986f83a8d0e.html?sep=6&rnd='.rand(0, 9999);
+        $ql = QueryList::get($url);
+        $ipstr = $ql->getHtml();
+        $ips = explode(';', $ipstr);
         return $ips;
+//        存入REDIS队列
+//        $ips = array();
+//        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
+//        foreach ($ips_free as $k => $v)
+//        {
+//            array_push($ips, $v);
+//            $this->redis->zRem(Config::get('redis.ips_free'), $v);
+//        }
+//        return $ips;
     }
 
     // 检查是否存在代理IP
     private function hasAgent()
     {
-        return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
+        return true;
+        // return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
     }
 
     // 拿一个解析URL

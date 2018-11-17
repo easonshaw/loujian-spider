@@ -44,7 +44,7 @@ class CitysTask extends Command
             'worker_num'      => 4,
             'daemonize'       => false,
             'task_worker_num' => 4,  # task 进程数
-            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/cron_get_citys.log',
+            'log_file' => '/www/wwwroot/spider.weiaierchang.cn/logs/cron_get_citys.log',
         ]);
 
         // 注册回调函数
@@ -99,7 +99,7 @@ class CitysTask extends Command
                 foreach ($insertData as $k => $v) {
                     if(empty($v['url'])) continue;
                     $this->redis->zAdd(Config::get('redis.city_set'), 1, $v['url'].'/community');
-                    $this->redis->zAdd(Config::get('redis.city_set'), 1, str_replace('.anjuke', '.anjuke').'/community');
+                    $this->redis->zAdd(Config::get('redis.city_set'), 1, str_replace('.anjuke', '.fang.anjuke', $v['url']).'/loupan');
                 }
                 if(!empty($citys)){
                     // Db::name('spider_citys')->insertAll($insertData, true); 写入MYSQL
@@ -154,20 +154,27 @@ class CitysTask extends Command
     // 拿一个代理IP，并从集合删除
     private function getAgents($count = 1)
     {
-        $ips = array();
-        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
-        foreach ($ips_free as $k => $v)
-        {
-            array_push($ips, $v);
-            $this->redis->zRem(Config::get('redis.ips_free'), $v);
-        }
+        $url = 'http://dynamic.goubanjia.com/dynamic/get/9b5318ca9855fdea66482986f83a8d0e.html?sep=6&rnd='.rand(0, 9999);
+        $ql = QueryList::get($url);
+        $ipstr = $ql->getHtml();
+        $ips = explode(';', $ipstr);
         return $ips;
+//        存入REDIS队列
+//        $ips = array();
+//        $ips_free = $this->redis->zRange(Config::get('redis.ips_free'), 0, $count-1, false);
+//        foreach ($ips_free as $k => $v)
+//        {
+//            array_push($ips, $v);
+//            $this->redis->zRem(Config::get('redis.ips_free'), $v);
+//        }
+//        return $ips;
     }
 
     // 检查是否存在代理IP
     private function hasAgent()
     {
-        return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
+        return true;
+        // return $this->redis->zCard(Config::get('redis.ips_free')) > 0 ? true : false;
     }
 
 }
